@@ -28,6 +28,7 @@ use WWW::Mechanize;
 use HTML::TokeParser;
 use HTTP::Cookies::Mozilla;
 use HTML::Entities;
+use Getopt::Long;
 
 
 
@@ -48,19 +49,17 @@ $mech = WWW::Mechanize->new( cookie_jar => $cookie_jar );
 
 # process user arguments:
 # ----------------------
-
-# -journal="Proceedings of the Combustion Institute" 
-# -vol=30 
-# -issue=25
-# -journalurl
+GetOptions( "journal=s"=>\$journalName,"journalName=s"=>\$journalName,\
+            "vol=i"=>\$volumeNumber,"volume=i"=>\$volumeNumber,\
+            "issue=i"=>\$issueNumber,\
+            "journalURL=s"=>\$journalURL );
 
 # establish a starting point
 # if user has not specified a URL, go to the journal's main page
-if( $journalurl ) {
-    $mech->get( $journalurl );
-} else {
-    get_journal_url($mech, $journal)
+if( $journalURL='' ) {
+    get_journal_url($mech, $journalName)
 }
+$mech->get( $journalURL );
 
 # determine what to do with the arguments.
 # --------------------------
