@@ -76,9 +76,7 @@ $_ = $mech->content;
 if( defined $issueNumber ) {
     # if user provided an issue, they want to download that entire issue.
     # if user provided a url, they want to download all/only papers at that URL.
-    print "starting.\n";
     downloadSpecifiedVolumeIssue($mech,$journalURL,$volumeNumber,$issueNumber);
-    print "done.\n";
 
 } elsif ( defined $volumeNumber ) {
     # if user provided a volume, they want to download that entire volume
@@ -169,7 +167,6 @@ sub get_journal_info {
 ####################################################
 # downloadSpecifiedVolumeIssue(
 sub downloadSpecifiedVolumeIssue {
-    print "doing.\n";
     my $mech_          = $_[0];
     my $journal_url_   = $_[1];
     my $journal_vol_   = $_[2];
