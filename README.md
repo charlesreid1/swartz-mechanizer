@@ -1,8 +1,8 @@
-schwartz-mechanizer
+swartz-mechanizer
 ===================
 A repository of scripts for scraping academic papers from the web.
 
-In Memoriam [Aaron Schwartz](http://en.wikipedia.org/wiki/Aaron_Swartz).
+In Memoriam [Aaron Swartz](http://en.wikipedia.org/wiki/Aaron_Swartz).
 
 Please Make A Note
 -------------------
