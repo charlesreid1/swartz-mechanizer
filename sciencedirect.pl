@@ -2,6 +2,11 @@
 #
 # This script uses Mechanize to download papers from a ScienceDirect journal page.
 #
+# TODO writing to archive.txt doesn't currently work
+# TODO add check_for_volume() function; 
+# TODO add option to fake-download files
+#
+#
 # Usage:
 #
 #   perl sciencedirect.pl [url] [volume] [issue]
@@ -40,7 +45,7 @@ use HTML::Entities;
 
 
 ####################################################
-# okay, let's do it
+# do it
 ####################################################
 
 my $journalURL;
@@ -79,12 +84,18 @@ if( defined $issueNumber ) {
     downloadSpecifiedVolumeIssue($mech,$journalURL,$volumeNumber,$issueNumber);
 
 } elsif ( defined $volumeNumber ) {
+    # -----------------
+    # (this doesn't work right now)
     # if user provided a volume, they want to download that entire volume
     $mech = downloadSpecifiedVolume($mech,$journalURL,$volumeNumber);
+    # -----------------
 
 } elsif( defined $journalName ) {
+    # -----------------
+    # (this doesn't work right now)
     # if user provided a volume, they want to download that entire journal
     $mech = downloadSpecifiedJournal($mech,$journalURL);
+    # -----------------
 
 }
 
@@ -143,7 +154,7 @@ sub get_journal_info {
         $journal_yr_    = $5;
     
         print "\n";
-        print "_Journal name = "   . $journal_name_  . "\n";
+        print "Journal name = "   . $journal_name_  . "\n";
         print "Journal volume = " . $journal_vol_   . "\n";
         print "Journal issue = "  . $journal_issue_ . "\n";
         print "Journal pages = "  . $journal_pages_ . "\n";
@@ -165,7 +176,7 @@ sub get_journal_info {
 ####################################################
 # download everything from specified volume and issue
 ####################################################
-# downloadSpecifiedVolumeIssue(
+# downloadSpecifiedVolumeIssue($mech,$journalURL,$journalVolume,$journalIssue)
 sub downloadSpecifiedVolumeIssue {
     my $mech_          = $_[0];
     my $journal_url_   = $_[1];
@@ -322,17 +333,24 @@ sub downloadSpecifiedJournal {
 # $buttonClicked = click_next_page_button( $mech )
 sub click_next_page_button() {
     my $next_page_mech_ = $_[0];
+    my $next_page_uri_ = $next_page_mech_->uri();
 
     my $next_page_stream  = HTML::TokeParser->new( \$next_page_mech_->content );
 
-    my $buttonClicked = 'false';
+    my $buttonClicked;
 
     # first, grab the link with title "Next page" table of class resultsRow 
+    my $count = 0;
     while( my $next_page_tag = $next_page_stream->get_tag("a") ) {
         if( $next_page_tag->[1]{title} and $next_page_tag->[1]{title} eq "Next page" ) {
-            $next_page_mech_->get( $next_page_tag->[1]{href} );
-            $buttonClicked = 'true';
-            print "Clicked the next page button. \n";
+            # for some reason, the top "Next >" link won't work,
+            # so use the bottom one instead.
+            if( $count == 0 ) {
+                $count++;
+            } else {
+                $next_page_mech_->get( $next_page_tag->[1]{href} );
+                $buttonClicked = 'true';
+            }
         }
     }
 
@@ -460,6 +478,9 @@ sub process_listed_journal_articles
 # open_links( $mech, $N_papers, $paper_links, $paper_names, $paper_ids )
 sub open_links
 {
+    my $verbosity = 1;
+    my $savePapers;
+
     my $N_papers = $_[1];
     if( $#_ != (1+3*$N_papers) )
     {
@@ -492,15 +513,14 @@ sub open_links
 
     my $vol_string2 = $journal_name . " Volume " . $journal_vol . " Issue " . $journal_issue;
 
-    print "\n------------------------------------\n";
-    print "Title: " . $vol_string2 . "\n";
-
     #####################################
+    print "\n------------------------------------\n";
+    print "Downloading " . $vol_string2 . "...\n";
 
     # Check for this volume in the list of archived journal vols
     my $vol_string = $journal_name . " Volume " . $journal_vol . " Issue " . $journal_issue;
     if( undef ) {
-#    check_for_volume( $journal_name, $journal_vol, $journal_issue ) )
+    #check_for_volume( $journal_name, $journal_vol, $journal_issue ) )
         print "This volume/issue combination has already been downloaded: ";
         print $vol_string;
         print "\n";
@@ -526,29 +546,34 @@ sub open_links
         foreach my $i (0..$#paper_links_)
         {
             # use journal name to form filename
-
-            ## be verbose & print full paper title
-            #print "Saving paper \"" . Encode::encode_utf8( $paper_names_[$i] ) . "\" to file \"" . $export_file . "\"... ";
-
-            # be quiet & print paper ID number
-            print "Saving paper " . $paper_ids_[$i] . "... ";
-
-            # export filename
             my $export_file = $journal_name . " " . $paper_ids_[$i] . ".pdf";
-            print $export_file . "... ";
 
-            # SAVE
+            if( $verbosity == 0 ) {
+            } elsif ( $verbosity == 1 ) {
+                # be quiet & print paper ID number
+                print "Saving paper " . $paper_ids_[$i] . " from " . $export_file . "... ";
+            } elsif ( $verbosity == 2 ) {
+                # be kind of verbose & print full paper title
+                print "Saving paper \"" . Encode::encode_utf8( $paper_names_[$i] ) . "\"... ";
+            } elsif ( $verbosity == 3 ) {
+                # be verbose & print full paper title and save destination file
+                print "Saving paper \"" . Encode::encode_utf8( $paper_names_[$i] ) . "\" to file \"" . $export_file . "\"... ";
+            }
+
             # save link target to file (WORKS!)
-            $open_links_mech_->get( $paper_links_[$i], ':content_file' => $fullpath . '/' . $export_file );
+            if( defined $savePapers ) {
+                $open_links_mech_->get( $paper_links_[$i], ':content_file' => $fullpath . '/' . $export_file );
+            }
 
             print "Done.\n";
         }
 
         # Append that this volume was saved
-        my $file_ = $fullpath . '/archive.txt';
-        open(ARCHIVE,">>$file_") or die "Error opening file " . $file_ . " for writing.\n";
+        print "Putting \"" . $vol_string . "\" in the archive.\n";
+        #my $file_ = $fullpath . '/archive.txt';
+        my $file_ = 'archive.txt';
+        open(ARCHIVE, '>>', $file_) or die "Error opening file " . $file_ . " for writing.\n";
         print ARCHIVE $vol_string . "\n"; 
-        print "Putting " . $vol_string . " in the archive.\n";
         close ARCHIVE;
 
         # this is REQUIRED, otherwise the last get() with a paper link
@@ -557,7 +582,9 @@ sub open_links
 
     }
 
-    # -----------------------------------
+    print "------------------------------------\n\n";
+    #####################################
+
 }
 
 

@@ -6,7 +6,7 @@ In Memoriam [Aaron Swartz](http://en.wikipedia.org/wiki/Aaron_Swartz).
 
 Please Make A Note
 -------------------
-This is all work in progress. It is also all terribly-written Perl. 
+This is all work in progress. It is also all terribly-written Perl. Yup - I know my Perl is atrocious.
 
 Currently, functionality is only for ScienceDirect journals. Next addition will be JSTOR.
 
