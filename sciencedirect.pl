@@ -553,7 +553,7 @@ sub open_links
     my $verbosity_level = 2;
 
     # Setting fake_save makes the script pretend to download the papers but doesn't actually (for debugging)
-    my $fake_save = 1;
+    my $fake_save;
 
     my $N_papers = $_[1];
     if( $#_ != (1+3*$N_papers) )
