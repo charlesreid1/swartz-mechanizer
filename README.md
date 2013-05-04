@@ -45,7 +45,7 @@ The Swartz Mechanizer Scripts
 
 Science Direct (sciencedirect.pl)
 ------------------------
-This script uses Mechanize to download papers from a ScienceDirect journal page.
+This script uses Mechanize to download papers from a ScienceDirect journal page. A list of all ScienceDirect journals may be found [on the ScienceDirect.com website](http://www.sciencedirect.com/science/journals).
 
 You provide a URL for the journal you are interested in, and optionally a volume and issue number. The script will then iterate through each paper in whatever set you specified, and download the papers to disk.
 
