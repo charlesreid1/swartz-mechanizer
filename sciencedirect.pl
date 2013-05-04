@@ -2,39 +2,41 @@
 #
 # This script uses Mechanize to download papers from a ScienceDirect journal page.
 #
-# TODO writing to archive.txt doesn't currently work
 # TODO add check_for_volume() function; 
-# TODO add option to fake-download files
 #
 #
 # Usage:
 #
-#   perl sciencedirect.pl [url] [volume] [issue]
+#   perl sciencedirect.pl [journal url] [volume] [issue]
 #
 # The URL argument is required, but the volume and issue arguments are optional.
 #
 #
 # Example: download journal/volume/issue
 #
-#   perl sciencedirect.pl 'http://www.sciencedirect.com/science/journal/XYZ' 100 5
+#   perl sciencedirect.pl 'http://www.sciencedirect.com/science/journal/15407489' 30 1
 #
 #
 # Example: download journal/volume
 #
-#   perl sciencedirect.pl 'http://www.sciencedirect.com/science/journal/XYZ' 100 
+#   perl sciencedirect.pl 'http://www.sciencedirect.com/science/journal/15407489' 30 
 #
 #
 # Example: download journal
 #
-#   perl sciencedirect.pl 'http://www.sciencedirect.com/science/journal/XYZ' 
+#   perl sciencedirect.pl 'http://www.sciencedirect.com/science/journal/15407489'
 #
 #
 # How it works:
 #
-# You specify a journal, and (optionally) a volume/issue number.
-# The script initializes a Schwartz-Mechanizer object.
-# Then the script then determines if you want to download a whole journal, a whole volume, or a whole issue.
-# Then the script does that.
+# - You specify a journal url, and (optionally) a volume/issue number.
+# - The script initializes a Schwartz-Mechanizer object.
+# - The script determines if you want to download a whole journal, a whole volume, or a whole issue.
+# - If you specify a whole journal, it starts from the latest volume and iterates backwards through each volume number.
+# - If you specify a whole volume, it starts from the latest issue and iterates backwards through each issue number.
+# - For each issue, the script assembles an array of links to articles listed on the page.
+# - The script then loops through the array and downloads the articles to PDF files.
+# - The script repeats this for each issue of each volume.
 
 use strict;
 use WWW::Mechanize;
@@ -48,6 +50,13 @@ use HTML::Entities;
 # do it
 ####################################################
 
+if( $#ARGV == -1 ) {
+    print "\n********* ERROR! *********\n\n";
+    print " Usage:\n\n";
+    print "   perl sciencedirect.pl [journal url] [volume] [issue] \n\n";
+    die "The journal URL argument is required, but you did not provide one.\n"
+}
+
 my $journalURL;
 my $volumeNumber;
 my $issueNumber;
@@ -58,7 +67,6 @@ my $journalName;
 $journalURL   = $ARGV[0];
 $volumeNumber = $ARGV[1];
 $issueNumber  = $ARGV[2];
-
 
 # initialize the science direct swartz-mechanizer:
 # ------------------------------
@@ -72,9 +80,7 @@ $mech->get($journalURL);
 $mech->get($journalURL);
 $_ = $mech->content;
 
-# you are now on the page with all the articles listed
-
-
+# you are now on the page with all the articles listed.
 
 # determine what to do with the arguments.
 # --------------------------
@@ -87,34 +93,19 @@ if( defined $issueNumber ) {
     # -----------------
     # (this doesn't work right now)
     # if user provided a volume, they want to download that entire volume
-    $mech = downloadSpecifiedVolume($mech,$journalURL,$volumeNumber);
+    downloadSpecifiedVolume($mech,$journalURL,$volumeNumber);
     # -----------------
 
-} elsif( defined $journalName ) {
+} elsif( defined $journalURL ) {
     # -----------------
     # (this doesn't work right now)
     # if user provided a volume, they want to download that entire journal
-    $mech = downloadSpecifiedJournal($mech,$journalURL);
+    downloadSpecifiedJournal($mech,$journalURL);
     # -----------------
 
 }
 
-
-
-=pod
-####################################################
-# get the url for the main page of a journal 
-# (given its name)
-####################################################
-# get_journal_url($mechanizeObject)
-sub get_journal_url {
-    # go to the science direct website
-    # perform a search with the $journal name
-    # return the URL for that journal's main page
-    # (i.e. the latest issue)
-    # (i.e. the starting point for everything)
-}
-=cut
+print "All done!\n";
 
 
 
@@ -153,17 +144,17 @@ sub get_journal_info {
         $journal_pages_ = $4;
         $journal_yr_    = $5;
     
-        print "\n";
-        print "Journal name = "   . $journal_name_  . "\n";
-        print "Journal volume = " . $journal_vol_   . "\n";
-        print "Journal issue = "  . $journal_issue_ . "\n";
-        print "Journal pages = "  . $journal_pages_ . "\n";
-        print "Journal year = "   . $journal_yr_    . "\n";
-        print "\n";
+        #print "\n";
+        #print "Journal name = "   . $journal_name_  . "\n";
+        #print "Journal volume = " . $journal_vol_   . "\n";
+        #print "Journal issue = "  . $journal_issue_ . "\n";
+        #print "Journal pages = "  . $journal_pages_ . "\n";
+        #print "Journal year = "   . $journal_yr_    . "\n";
+        #print "\n";
 
     } else {
         print "Error from page " . $get_journal_info_mech_->uri() . "\n";
-        die "Malformed title. Please check to make sure the title is correct.\n";
+        die "Malformed title. Check if the title is in the form '[Journal Name] | Vol [#], Iss [#], Pgs [#], ([Year]) | ScienceDirect.com'. If it is not, you may need to modify the get_journal_info() function.\n";
     }
 
     my @vol_info_ = ($journal_name_,$journal_vol_,$journal_issue_,$journal_pages_, $journal_yr_);
@@ -176,19 +167,14 @@ sub get_journal_info {
 ####################################################
 # download everything from specified volume and issue
 ####################################################
-# downloadSpecifiedVolumeIssue($mech,$journalURL,$journalVolume,$journalIssue)
+# downloadSpecifiedVolumeIssue( $mech, $journalURL, $journalVolume, $journalIssue )
 sub downloadSpecifiedVolumeIssue {
-    my $mech_          = $_[0];
-    my $journal_url_   = $_[1];
-    my $journal_vol_   = $_[2];
-    my $journal_issue_ = $_[3];
 
 =pod
     init: 
-        get list of all papers in a given issue
-        assemble links to each paper in a given issue
-        create array of all papers in a given issue
-        shove links into array
+        go to the URL for this volume/issue combination
+        get journal name/volume/issue information
+        check if this journal volume/issue has already been downloaded
     do 
         get list of all papers in a given issue
         assemble links to each paper and put them in an array
@@ -197,87 +183,132 @@ sub downloadSpecifiedVolumeIssue {
         next page button click returns true (pass it the mech object)
 =cut
 
-    # do loop: process listed journal articles while next page button click returns true
-    do {
-        # create HTML token parser for this page
-        my $div_stream  = HTML::TokeParser->new( \$mech_->content );
-        my $table_stream = HTML::TokeParser->new( \$mech_->content );
+    my $mech_          = @_[0];
+    my $journal_url_   = @_[1];
+    my $journal_vol_   = @_[2];
+    my $journal_issue_ = @_[3];
 
-        # ----------------
-        # find each <div class="sectionH1 heading1"> to grab name of each papers category:
-        my @div_header_tags;# list of the <div> tags
-        my @paper_ids;      # paper IDs
-        my @paper_names;    # list of paper names
-        my @paper_links;    # list of paper links
-        my @paper_authors;  # list of paper authors
+    # re-form the URL to point to the right volume and issue number
+    my $full_journal_url_ = $journal_url_ . "/" . $journal_vol_ . "/" . $journal_issue_;
 
-        # first, grab the table of class resultsRow 
-        while( my $table_tag = $table_stream->get_tag("table") ) {
-            if( $table_tag->[1]{class} and $table_tag->[1]{class} eq "resultRow" ) {
+    $mech_->get($full_journal_url_);
+    $mech_->get($full_journal_url_);
+    $_ = $mech_->content;
 
-                # the first column contains a table (checkbox and paper ID #)
-                $table_stream->get_tag("td");
-                    # ----------
-                    $table_stream->get_tag("table");
+    # get journal info.
+    my @vol_info = get_journal_info( $mech_ );
+    my $got_journal_name  = $vol_info[0];
+    my $got_journal_vol   = $vol_info[1];
+    my $got_journal_issue = $vol_info[2];
+    my $got_journal_pages = $vol_info[3];
+    my $got_journal_yr    = $vol_info[4];
+    my $pretty_name = $got_journal_name . " Volume " . $got_journal_vol . " Issue " . $got_journal_issue;
+
+    # check if volume has already been downloaded
+    if( undef ) {
+    #if( check_for_volume( $pretty_name ) ) # skip the check for now...
+        print "This volume/issue combination has already been downloaded: ";
+        print $pretty_name;
+        print "\n";
+
+    } else {
+
+        print "\n------------------------------------\n";
+        print "Downloading " . $pretty_name . "...\n";
+
+        # do loop: process listed journal articles while next page button click returns true
+        do {
+            # create HTML token parser for this page
+            my $div_stream  = HTML::TokeParser->new( \$mech_->content );
+            my $table_stream = HTML::TokeParser->new( \$mech_->content );
+
+            # ----------------
+            # find each <div class="sectionH1 heading1"> to grab name of each papers category:
+            my @div_header_tags;# list of the <div> tags
+            my @paper_ids;      # paper IDs
+            my @paper_names;    # list of paper names
+            my @paper_links;    # list of paper links
+            my @paper_authors;  # list of paper authors
+
+            # first, grab the table of class resultsRow 
+            while( my $table_tag = $table_stream->get_tag("table") ) {
+                if( $table_tag->[1]{class} and $table_tag->[1]{class} eq "resultRow" ) {
+
+                    # the first column contains a table (checkbox and paper ID #)
                     $table_stream->get_tag("td");
-                    my $paper_id = $table_stream->get_trimmed_text("/td");
+                        # ----------
+                        $table_stream->get_tag("table");
+                        $table_stream->get_tag("td");
+                        my $paper_id = $table_stream->get_trimmed_text("/td");
+                        $table_stream->get_tag("/table");
+                        push( @paper_ids, sprintf("%03d",$paper_id) );
+                        # ----------
+
+                    # the second column contains the paper name/authors/link/etc
+                    $table_stream->get_tag("td");
+            
+                        # ----------
+                        # grab link (abstract/paper link)
+                        my $a_tag = $table_stream->get_tag("a");
+            
+                        # save paper name
+                        my $paper_name = $table_stream->get_text("/a");
+                        push( @paper_names, $paper_name );
+            
+                        # save paper authors
+                        $table_stream->get_tag("br");
+                        $table_stream->get_tag("br");
+                        my $paper_author = $table_stream->get_text("br");
+                        push( @paper_authors, $paper_author );
+                        # ----------
+            
+                        # ------------
+                        # grab link (preview link)
+                        $table_stream->get_tag("a");
+                        # ----------
+            
+                        # ------------
+                        # grab link to PDF and store/save
+                        $a_tag = $table_stream->get_tag("a");
+                        push( @paper_links, $a_tag->[1]{href} );
+                        # ----------
+            
+                    # go to the last /table tag
                     $table_stream->get_tag("/table");
-                    push( @paper_ids, sprintf("%03d",$paper_id) );
-                    # ----------
+            
+                }#end if resultrow table
+            }#end table loop
+            
+            # Check that size of paper arrays are the same
+            my $paper_links_size        = scalar @paper_links;
+            my $paper_names_size        = scalar @paper_names;
+            my $paper_authors_size      = scalar @paper_authors;
+            my $paper_ids_size          = scalar @paper_ids;
 
-                # the second column contains the paper name/authors/link/etc
-                $table_stream->get_tag("td");
-        
-                    # ----------
-                    # grab link (abstract/paper link)
-                    my $a_tag = $table_stream->get_tag("a");
-        
-                    # save paper name
-                    my $paper_name = $table_stream->get_text("/a");
-                    push( @paper_names, $paper_name );
-        
-                    # save paper authors
-                    $table_stream->get_tag("br");
-                    $table_stream->get_tag("br");
-                    my $paper_author = $table_stream->get_text("br");
-                    push( @paper_authors, $paper_author );
-                    # ----------
-        
-                    # ------------
-                    # grab link (preview link)
-                    $table_stream->get_tag("a");
-                    # ----------
-        
-                    # ------------
-                    # grab link to PDF and store/save
-                    $a_tag = $table_stream->get_tag("a");
-                    push( @paper_links, $a_tag->[1]{href} );
-                    # ----------
-        
-                # go to the last /table tag
-                $table_stream->get_tag("/table");
-        
-            }#end if resultrow table
-        }#end table loop
-        
-        # Check that size of paper arrays are the same
-        my $paper_links_size        = scalar @paper_links;
-        my $paper_names_size        = scalar @paper_names;
-        my $paper_authors_size      = scalar @paper_authors;
-        my $paper_ids_size          = scalar @paper_ids;
+            if( $paper_links_size != $paper_names_size ||
+                $paper_links_size != $paper_authors_size ||
+                $paper_links_size != $paper_ids_size )
+            {
+                die "Error: list size of paper links do not match list sizes of names, authors, or IDs.\n";
+            }
 
-        if( $paper_links_size != $paper_names_size ||
-            $paper_links_size != $paper_authors_size ||
-            $paper_links_size != $paper_ids_size )
-        {
-            die "Error: list size of paper links do not match list sizes of names, authors, or IDs.\n";
-        }
+            open_links( $mech_, $paper_links_size, @paper_links, @paper_names, @paper_ids );
 
-        open_links( $mech_, $paper_links_size, @paper_links, @paper_names, @paper_ids );
+        } while ( click_next_page_button($mech_) );
 
-    } while ( click_next_page_button($mech_) );
+        print "Done downloading papers from " . $pretty_name . "\n";
 
-    print "Done downloading specified volume and issue.\n";
+        # Append that this volume/issue was saved
+        print "Putting \"" . $pretty_name . "\" in the archive.\n";
+        #my $file_ = $fullpath . '/archive.txt';
+        my $file_ = 'archive.txt';
+        open(ARCHIVE, '>>', $file_) or die "Error opening file " . $file_ . " for writing.\n";
+        print ARCHIVE $pretty_name . "\n"; 
+        close ARCHIVE;
+
+        print "------------------------------------\n\n";
+
+    }
 }
 
 
@@ -285,22 +316,42 @@ sub downloadSpecifiedVolumeIssue {
 ####################################################
 # download everything from specified volume
 ####################################################
+# downloadSpecifiedVolume( $mechanizer, $journalURL, $journalVolume )
 sub downloadSpecifiedVolume {
-    my $journal_name_  = $1;
-    my $journal_vol_   = $2;
-    print $journal_name_;
-    print $journal_vol_;
+
 =pod
     init: 
-        get list of all issues in a given volume
-        assemble links to each issue in a given volume
-        create array of all issues in a given volume
-        shove links into array
-    do
+        go to the journal/volume url
+        get the latest issue number
+    for each issue (decrement)
         downloadSpecifiedVolumeIssue 
-    while
-        previous issue button click returns true (pass it the mech object)
 =cut
+
+    my $mech_          = @_[0];
+    my $journal_url_   = @_[1];
+    my $journal_vol_   = @_[2];
+
+    # re-form the URL to point to the right volume 
+    my $full_journal_url_ = $journal_url_ . "/" . $journal_vol_;
+
+    $mech_->get($full_journal_url_);
+    $mech_->get($full_journal_url_);
+    $_ = $mech_->content;
+
+    # get journal info.
+    # if user-specified volume is different from volume retrieved by get_journal_info(),
+    # the user has specified an invalid/non-existent volume.
+    my @vol_info = get_journal_info( $mech_ );
+    my $got_journal_name  = $vol_info[0];
+    my $got_journal_vol   = $vol_info[1];
+    my $got_journal_issue = $vol_info[2];
+    if( $got_journal_vol != $journal_vol_ ) {
+        print "WARNING: Journal " . $got_journal_name . " does not seem to have a volume " . $journal_vol_ . ". Downloading volume " . $got_journal_vol . " instead.\n";
+    }
+
+    for( my $i = $got_journal_issue; $i > 0; $i-- ) {
+        downloadSpecifiedVolumeIssue( $mech_, $journal_url_, $got_journal_vol, $i ) 
+    }
 }
 
 
@@ -308,20 +359,48 @@ sub downloadSpecifiedVolume {
 ####################################################
 # download everything from specified volume and issue
 ####################################################
+# downloadSpecifiedJournal( $mechanizer, $journalURL ) 
 sub downloadSpecifiedJournal {
-    my $journal_name_  = $1;
-    print $journal_name_;
+
 =pod
     init: 
-        get list of all volumes in a given journal
-        assmelbe links to each volume in a given journal
-        create array of all volumes in a given journal
-        shove links into array
-    do 
+        go to the journal url
+        get the latest volume number 
+    for each volume (decrement)
         downloadSpecifiedVolume
-    while
-        previous volume button click returns true 
 =cut
+
+    my $mech_        = @_[0];
+    my $journal_url_ = @_[1];
+
+    $mech_->get($journal_url_);
+    $mech_->get($journal_url_);
+    $_ = $mech_->content;
+
+    # get journal info.
+    my @vol_info = get_journal_info( $mech_ );
+    my $latest_journal_vol   = $vol_info[1]; 
+
+    VOLUMELOOP: {
+        for( my $v = $latest_journal_vol, my $first_loop = 1; $v > 0; $v-- ) {
+            # check if this volume number exists:
+            # if a volume number is non-existent/invalid, 
+            # sciencedirect will redirect you to the latest volume 
+            $mech_->get($journal_url_ . "/" . $v);
+            $mech_->get($journal_url_ . "/" . $v);
+            my @vol_info = get_journal_info( $mech_ );
+            my $this_journal_vol = $vol_info[1]; 
+
+            if( $first_loop == 0 && $this_journal_vol == $latest_journal_vol ) {
+                # this is a non-existent/invalid volume number
+                last VOLUMELOOP;
+            }
+
+            downloadSpecifiedVolume( $mech_, $journal_url_, $this_journal_vol );
+
+            $first_loop = 0;
+        }
+    }
 }
 
 
@@ -356,18 +435,6 @@ sub click_next_page_button() {
 
     return $buttonClicked;
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -475,11 +542,18 @@ sub process_listed_journal_articles
 ####################################################
 # open an array of links
 ####################################################
-# open_links( $mech, $N_papers, $paper_links, $paper_names, $paper_ids )
+# open_links( $mechanizer_object, $number_of_papers, $array_of_paper_links, $array_of_paper_names, $array_of_paper_ids )
 sub open_links
 {
-    my $verbosity = 1;
-    my $savePapers;
+    # Set the verbosity level:
+    # 0 = SHUT UP
+    # 1 = quiet, print paper ID number
+    # 2 = loud, print full paper title
+    # 3 = yell, print full paper title and save destination file
+    my $verbosity_level = 2;
+
+    # Setting fake_save makes the script pretend to download the papers but doesn't actually (for debugging)
+    my $fake_save = 1;
 
     my $N_papers = $_[1];
     if( $#_ != (1+3*$N_papers) )
@@ -511,18 +585,14 @@ sub open_links
     my $journal_pages = $vol_info[3];
     my $journal_yr    = $vol_info[4];
 
-    my $vol_string2 = $journal_name . " Volume " . $journal_vol . " Issue " . $journal_issue;
-
     #####################################
-    print "\n------------------------------------\n";
-    print "Downloading " . $vol_string2 . "...\n";
 
     # Check for this volume in the list of archived journal vols
-    my $vol_string = $journal_name . " Volume " . $journal_vol . " Issue " . $journal_issue;
+    my $volissue_string = $journal_name . " Volume " . $journal_vol . " Issue " . $journal_issue;
     if( undef ) {
-    #check_for_volume( $journal_name, $journal_vol, $journal_issue ) )
+    #if( check_for_volume( $journal_name, $journal_vol, $journal_issue ) ) 
         print "This volume/issue combination has already been downloaded: ";
-        print $vol_string;
+        print $volissue_string;
         print "\n";
 
     } else {
@@ -546,35 +616,26 @@ sub open_links
         foreach my $i (0..$#paper_links_)
         {
             # use journal name to form filename
-            my $export_file = $journal_name . " " . $paper_ids_[$i] . ".pdf";
+            my $export_file = $journal_name . " v" . $journal_vol . " i" . $journal_issue . " " . $paper_ids_[$i] . ".pdf";
 
-            if( $verbosity == 0 ) {
-            } elsif ( $verbosity == 1 ) {
-                # be quiet & print paper ID number
+            if( $verbosity_level == 0 ) {
+            } elsif ( $verbosity_level == 1 ) {
                 print "Saving paper " . $paper_ids_[$i] . " from " . $export_file . "... ";
-            } elsif ( $verbosity == 2 ) {
-                # be kind of verbose & print full paper title
+            } elsif ( $verbosity_level == 2 ) {
                 print "Saving paper \"" . Encode::encode_utf8( $paper_names_[$i] ) . "\"... ";
-            } elsif ( $verbosity == 3 ) {
-                # be verbose & print full paper title and save destination file
+            } elsif ( $verbosity_level == 3 ) {
                 print "Saving paper \"" . Encode::encode_utf8( $paper_names_[$i] ) . "\" to file \"" . $export_file . "\"... ";
             }
 
-            # save link target to file (WORKS!)
-            if( defined $savePapers ) {
+            # save link target to file 
+            if( undef $fake_save ) {
+                # :content_file is used to save the results of a get request to a file 
+                # http://lwp.interglacial.com/ch03_04.htm
                 $open_links_mech_->get( $paper_links_[$i], ':content_file' => $fullpath . '/' . $export_file );
             }
 
             print "Done.\n";
         }
-
-        # Append that this volume was saved
-        print "Putting \"" . $vol_string . "\" in the archive.\n";
-        #my $file_ = $fullpath . '/archive.txt';
-        my $file_ = 'archive.txt';
-        open(ARCHIVE, '>>', $file_) or die "Error opening file " . $file_ . " for writing.\n";
-        print ARCHIVE $vol_string . "\n"; 
-        close ARCHIVE;
 
         # this is REQUIRED, otherwise the last get() with a paper link
         # messes up the Mech object...
@@ -582,15 +643,24 @@ sub open_links
 
     }
 
-    print "------------------------------------\n\n";
     #####################################
 
 }
 
 
 
-
-
-
-
+=pod
+####################################################
+# get the url for the main page of a journal 
+# (given its name)
+####################################################
+# get_journal_url($mechanizeObject)
+sub get_journal_url {
+    # go to the science direct website
+    # perform a search with the $journal name
+    # return the URL for that journal's main page
+    # (i.e. the latest issue)
+    # (i.e. the starting point for everything)
+}
+=cut
 
