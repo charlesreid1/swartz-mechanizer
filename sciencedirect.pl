@@ -552,8 +552,9 @@ sub open_links
     # 3 = yell, print full paper title and save destination file
     my $verbosity_level = 2;
 
-    # Setting fake_save makes the script pretend to download the papers but doesn't actually (for debugging)
-    my $fake_save;
+    # Setting fake save switch makes the script pretend to download the papers but doesn't actually (for debugging)
+    #my $fake_save = 1; # Fake-save papers
+    my $fake_save = 0; # Don't fake-save papers
 
     my $N_papers = $_[1];
     if( $#_ != (1+3*$N_papers) )
@@ -628,7 +629,7 @@ sub open_links
             }
 
             # save link target to file 
-            if( undef $fake_save ) {
+            if( $fake_save == 0 ) {
                 # :content_file is used to save the results of a get request to a file 
                 # http://lwp.interglacial.com/ch03_04.htm
                 $open_links_mech_->get( $paper_links_[$i], ':content_file' => $fullpath . '/' . $export_file );
