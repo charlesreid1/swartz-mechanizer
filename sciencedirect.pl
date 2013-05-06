@@ -133,31 +133,69 @@ sub get_journal_info {
     my $journal_name_ ; 
     my $journal_vol_;  
     my $journal_issue_; 
-    my $journal_pages_; 
+    my $journal_issue2_; # << if necessary
     my $journal_yr_;
 
-    if( $title =~ /(.*) \| Vol (.*), Iss (.*), Pgs (.*), .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ )
-    {
+    if( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}), Pgs .* \(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        # if journal is volume & issue (normal)
         $journal_name_  = $1;
         $journal_vol_   = $2;
         $journal_issue_ = $3;
-        $journal_pages_ = $4;
-        $journal_yr_    = $5;
-    
-        #print "\n";
-        #print "Journal name = "   . $journal_name_  . "\n";
-        #print "Journal volume = " . $journal_vol_   . "\n";
-        #print "Journal issue = "  . $journal_issue_ . "\n";
-        #print "Journal pages = "  . $journal_pages_ . "\n";
-        #print "Journal year = "   . $journal_yr_    . "\n";
-        #print "\n";
+        $journal_yr_    = $4;
+
+    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Isss ([0-9]{1,}).*([0-9]{1,}), Pgs .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        # if journal is volume & issues (multiple issues per single page)
+        $journal_name_   = $1;
+        $journal_vol_    = $2;
+        $journal_issue_  = $3;
+        $journal_issue2_ = $4;
+        $journal_yr_     = $5;
+
+        # multiple issue numbers; set it to first issue number, 
+        # otherwise it will treat the issue number as invalid
+        # and will default to the latest volume/issue of the journal
+
+    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Pgs .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        # if journal is volume-only (no issue) 
+        # e.g. Energy Economics http://www.sciencedirect.com/science/journal/01409883
+        $journal_name_  = $1;
+        $journal_vol_   = $2;
+        $journal_yr_    = $4;
+
+        # no issue number, so just set it = to 1 
+        # (specifying any issue number will make it default to the latest volume/issue,
+        #  and only the latest volume/issue will be listed as "in progress" anyway) 
+        $journal_issue_ = 1;
+
+    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}),  In Progress , .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        # if journal is in progress, and volume & issue
+        $journal_name_  = $1;
+        $journal_vol_   = $2;
+        $journal_issue_ = $3;
+        $journal_yr_    = $4;
+
+    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}),  In Progress , .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        # if journal is in progress, and volume-only (no issue)
+        $journal_name_  = $1;
+        $journal_vol_   = $2;
+        $journal_yr_    = $3;
+
+        # no issue number, so just set it = to 1 
+        $journal_issue_ = 1;
 
     } else {
         print "Error from page " . $get_journal_info_mech_->uri() . "\n";
-        die "Malformed title. Check if the title is in the form '[Journal Name] | Vol [#], Iss [#], Pgs [#], ([Year]) | ScienceDirect.com'. If it is not, you may need to modify the get_journal_info() function.\n";
+        print "Malformed title. Check if the title is in one of the following forms: \n\n";
+        print "    <title>[Journal Name] | Vol [#], Iss [#], Pgs [#], ([Year]) | ScienceDirect.com</title>          \n";
+        print "    <title>[Journal Name] | Vol [#], Isss [#-#], Pgs [#], ([Year]) | ScienceDirect.com</title>       \n";
+        print "    <title>[Journal Name] | Vol [#], Pgs [#], ([Year]) | ScienceDirect.com</title>                   \n";
+        print "    <title>[Journal Name] | Vol [#], Iss [#],  In Progress , ([Year]) | ScienceDirect.com</title>    \n";
+        print "    <title>[Journal Name] | Vol [#],  In Progress , ([Year]) | ScienceDirect.com</title>             \n";
+        print "\n";
+        die "If your title does not match one of these formats, you will need to modify the get_journal_info() function.\n";
     }
 
-    my @vol_info_ = ($journal_name_,$journal_vol_,$journal_issue_,$journal_pages_, $journal_yr_);
+    my @vol_info_ = ($journal_name_,$journal_vol_,$journal_issue_,$journal_yr_);
     return @vol_info_;
 
 }
@@ -200,8 +238,7 @@ sub downloadSpecifiedVolumeIssue {
     my $got_journal_name  = $vol_info[0];
     my $got_journal_vol   = $vol_info[1];
     my $got_journal_issue = $vol_info[2];
-    my $got_journal_pages = $vol_info[3];
-    my $got_journal_yr    = $vol_info[4];
+    my $got_journal_yr    = $vol_info[3];
     my $pretty_name = $got_journal_name . " Volume " . $got_journal_vol . " Issue " . $got_journal_issue;
 
     # check if volume has already been downloaded
@@ -331,6 +368,22 @@ sub downloadSpecifiedVolume {
     my $journal_url_   = @_[1];
     my $journal_vol_   = @_[2];
 
+
+
+    # first, get info on the latest journal volume number. 
+    # this is going to be used to see if the issue number is valid.
+    # (if issue number is invalid, it redirects you to the latest volume/issue)
+    $mech_->get($journal_url_);
+    $mech_->get($journal_url_);
+    $_ = $mech_->content;
+
+    # get journal info.
+    my @vol_info = get_journal_info( $mech_ );
+    my $latest_journal_vol   = $vol_info[1]; 
+
+
+
+    # okay, now get the user-specified volume number.
     # re-form the URL to point to the right volume 
     my $full_journal_url_ = $journal_url_ . "/" . $journal_vol_;
 
@@ -349,9 +402,38 @@ sub downloadSpecifiedVolume {
         print "WARNING: Journal " . $got_journal_name . " does not seem to have a volume " . $journal_vol_ . ". Downloading volume " . $got_journal_vol . " instead.\n";
     }
 
-    for( my $i = $got_journal_issue; $i > 0; $i-- ) {
-        downloadSpecifiedVolumeIssue( $mech_, $journal_url_, $got_journal_vol, $i ) 
+    # if we're downloading the latest volume, just download each issue without checking to see if the issue number is valid.
+    # if there's a multi-issue cluster (like, Isss X-Y) in the latest volume, well, don't worry. it'll work out.
+    my $is_this_latest_volume = 0;
+    if( $got_journal_vol == $latest_journal_vol ) {
+        $is_this_latest_volume = 1;
     }
+
+    for( my $i = $got_journal_issue; $i > 0; $i-- ) {
+
+        ISSUESLOOP: {
+            # check if this issue number exists:
+            # if an issue number is non-existent/invalid, 
+            # sciencedirect will redirect you to the latest volume.
+            # if it is a multi-issue listing (e.g. issues 1-2),
+            # only the first issue in the series (e.g. issue 1) is valid.
+            # if we get an invalid issue number, keep going.
+            $mech_->get($journal_url_ . "/" . $got_journal_vol . "/" . $i);
+            $mech_->get($journal_url_ . "/" . $got_journal_vol . "/" . $i);
+            my @vol_info = get_journal_info( $mech_ );
+            my $this_journal_vol = $vol_info[1];
+
+            if( $is_this_latest_volume == 0 && $this_journal_vol == $latest_journal_vol ) {
+                # this is a non-existent/invalid issue number
+                print "Oops! Non-existent or invalid issue number: Volume " . $got_journal_vol . " Issue " . $i . " (ScienceDirect returned Volume " . $this_journal_vol . "). Continuing...\n";
+                last ISSUESLOOP;
+            }
+
+            downloadSpecifiedVolumeIssue( $mech_, $journal_url_, $got_journal_vol, $i ) 
+        }
+
+    }
+
 }
 
 
@@ -383,6 +465,7 @@ sub downloadSpecifiedJournal {
 
     VOLUMELOOP: {
         for( my $v = $latest_journal_vol, my $first_loop = 1; $v > 0; $v-- ) {
+
             # check if this volume number exists:
             # if a volume number is non-existent/invalid, 
             # sciencedirect will redirect you to the latest volume 
@@ -393,6 +476,7 @@ sub downloadSpecifiedJournal {
 
             if( $first_loop == 0 && $this_journal_vol == $latest_journal_vol ) {
                 # this is a non-existent/invalid volume number
+                print "Oops! Non-existent or invalid volume number: Volume " . $v . " (ScienceDirect returned Volume " . $this_journal_vol . "). Continuing... \n";
                 last VOLUMELOOP;
             }
 
@@ -553,8 +637,9 @@ sub open_links
     my $verbosity_level = 2;
 
     # Setting fake save switch makes the script pretend to download the papers but doesn't actually (for debugging)
-    #my $fake_save = 1; # Fake-save papers
-    my $fake_save = 0; # Don't fake-save papers
+    # 0 = actually save papers to disk
+    # 1 = fake-save papers 
+    my $fake_save = 0; 
 
     my $N_papers = $_[1];
     if( $#_ != (1+3*$N_papers) )
@@ -583,8 +668,7 @@ sub open_links
     my $journal_name  = $vol_info[0];
     my $journal_vol   = $vol_info[1];
     my $journal_issue = $vol_info[2];
-    my $journal_pages = $vol_info[3];
-    my $journal_yr    = $vol_info[4];
+    my $journal_yr    = $vol_info[3];
 
     #####################################
 
