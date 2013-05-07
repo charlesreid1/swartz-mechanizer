@@ -27,6 +27,18 @@ curl -L http://cpanmin.us | perl - --sudo App::cpanminus
 
 Once you do this, you should be able to type "which cpanm" and see a result.
 
+This method may give you errors, if your Perl system is old and components are in need of updating. In that case, you can use an alternative installation method. First, run the CPAN module, and update your CPAN:
+
+```bash
+perl -MCPAN -e 'install Bundle::CPAN'
+```
+
+(THis may take a while.) Then, install cpanm:
+
+```bash
+perl -MCPAN -e 'install App::cpanimus'
+```
+
 Note that if you have multiple Perl versions, you can sometimes get cpanm associated with the wrong Perl, and then things get all messed up. When you type "which perl" and "which cpanm", they should be in the same place.
 
 #### Prerequisite: Perl Mechanize ####

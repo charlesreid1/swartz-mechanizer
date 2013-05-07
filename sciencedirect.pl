@@ -135,6 +135,7 @@ sub get_journal_info {
     my $journal_issue_; 
     my $journal_issue2_; # << if necessary
     my $journal_yr_;
+    my $title_type;
 
     if( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}), Pgs .* \(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
         # if journal is volume & issue (normal)
@@ -142,6 +143,8 @@ sub get_journal_info {
         $journal_vol_   = $2;
         $journal_issue_ = $3;
         $journal_yr_    = $4;
+
+        $title_type = "vol_iss";
 
     } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Isss ([0-9]{1,}).*([0-9]{1,}), Pgs .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
         # if journal is volume & issues (multiple issues per single page)
@@ -151,9 +154,11 @@ sub get_journal_info {
         $journal_issue2_ = $4;
         $journal_yr_     = $5;
 
-        # multiple issue numbers; set it to first issue number, 
-        # otherwise it will treat the issue number as invalid
+        # multiple issue numbers; return the first issue number, 
+        # otherwise sciencedirect will treat the issue number as invalid
         # and will default to the latest volume/issue of the journal
+
+        $title_type = "vol_isss";
 
     } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Pgs .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
         # if journal is volume-only (no issue) 
@@ -167,14 +172,32 @@ sub get_journal_info {
         #  and only the latest volume/issue will be listed as "in progress" anyway) 
         $journal_issue_ = 1;
 
-    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}),  In Progress , .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        $title_type = "vol";
+
+    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}),  In Progress.*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
         # if journal is in progress, and volume & issue
         $journal_name_  = $1;
         $journal_vol_   = $2;
         $journal_issue_ = $3;
         $journal_yr_    = $4;
 
-    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}),  In Progress , .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        $title_type = "vol_iss_inprogress";
+
+    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Isss ([0-9]{1,}).*([0-9]{1,}),  In Progress.*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+        # if journal is in progress, and volume & issues (multiple issues per single page)
+        $journal_name_   = $1;
+        $journal_vol_    = $2;
+        $journal_issue_  = $3;
+        $journal_issue2_ = $4;
+        $journal_yr_     = $5;
+
+        # multiple issue numbers; return the first issue number, 
+        # otherwise sciencedirect will treat the issue number as invalid
+        # and will default to the latest volume/issue of the journal
+
+        $title_type = "vol_isss_inprogress";
+
+    } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}),  In Progress.*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
         # if journal is in progress, and volume-only (no issue)
         $journal_name_  = $1;
         $journal_vol_   = $2;
@@ -182,6 +205,8 @@ sub get_journal_info {
 
         # no issue number, so just set it = to 1 
         $journal_issue_ = 1;
+
+        $title_type = "vol_inprogress";
 
     } else {
         print "Error from page " . $get_journal_info_mech_->uri() . "\n";
@@ -195,7 +220,7 @@ sub get_journal_info {
         die "If your title does not match one of these formats, you will need to modify the get_journal_info() function.\n";
     }
 
-    my @vol_info_ = ($journal_name_,$journal_vol_,$journal_issue_,$journal_yr_);
+    my @vol_info_ = ($journal_name_,$journal_vol_,$journal_issue_,$journal_yr_,$title_type);
     return @vol_info_;
 
 }
@@ -226,8 +251,15 @@ sub downloadSpecifiedVolumeIssue {
     my $journal_vol_   = @_[2];
     my $journal_issue_ = @_[3];
 
-    # re-form the URL to point to the right volume and issue number
-    my $full_journal_url_ = $journal_url_ . "/" . $journal_vol_ . "/" . $journal_issue_;
+    # re-form the URL to point to the right volume and issue number;
+    # if there is no issue number, don't include an issue number
+    # (otherwise sciencedirect treats it as invalid and redirects to latest iss/vol)
+    my $full_journal_url_;
+    if( $journal_issue_ == 0 ) {
+        $full_journal_url_ = $journal_url_ . "/" . $journal_vol_;
+    } else {
+        $full_journal_url_ = $journal_url_ . "/" . $journal_vol_ . "/" . $journal_issue_;
+    }
 
     $mech_->get($full_journal_url_);
     $mech_->get($full_journal_url_);
@@ -241,111 +273,100 @@ sub downloadSpecifiedVolumeIssue {
     my $got_journal_yr    = $vol_info[3];
     my $pretty_name = $got_journal_name . " Volume " . $got_journal_vol . " Issue " . $got_journal_issue;
 
-    # check if volume has already been downloaded
-    if( undef ) {
-    #if( check_for_volume( $pretty_name ) ) # skip the check for now...
-        print "This volume/issue combination has already been downloaded: ";
-        print $pretty_name;
-        print "\n";
+    print "\n------------------------------------\n";
+    print "Downloading " . $pretty_name . "...\n";
 
-    } else {
+    # do loop: process listed journal articles while next page button click returns true
+    do {
+        # create HTML token parser for this page
+        my $div_stream  = HTML::TokeParser->new( \$mech_->content );
+        my $table_stream = HTML::TokeParser->new( \$mech_->content );
 
-        print "\n------------------------------------\n";
-        print "Downloading " . $pretty_name . "...\n";
+        # ----------------
+        # find each <div class="sectionH1 heading1"> to grab name of each papers category:
+        my @div_header_tags;# list of the <div> tags
+        my @paper_ids;      # paper IDs
+        my @paper_names;    # list of paper names
+        my @paper_links;    # list of paper links
+        my @paper_authors;  # list of paper authors
 
-        # do loop: process listed journal articles while next page button click returns true
-        do {
-            # create HTML token parser for this page
-            my $div_stream  = HTML::TokeParser->new( \$mech_->content );
-            my $table_stream = HTML::TokeParser->new( \$mech_->content );
+        # first, grab the table of class resultsRow 
+        while( my $table_tag = $table_stream->get_tag("table") ) {
+            if( $table_tag->[1]{class} and $table_tag->[1]{class} eq "resultRow" ) {
 
-            # ----------------
-            # find each <div class="sectionH1 heading1"> to grab name of each papers category:
-            my @div_header_tags;# list of the <div> tags
-            my @paper_ids;      # paper IDs
-            my @paper_names;    # list of paper names
-            my @paper_links;    # list of paper links
-            my @paper_authors;  # list of paper authors
-
-            # first, grab the table of class resultsRow 
-            while( my $table_tag = $table_stream->get_tag("table") ) {
-                if( $table_tag->[1]{class} and $table_tag->[1]{class} eq "resultRow" ) {
-
-                    # the first column contains a table (checkbox and paper ID #)
+                # the first column contains a table (checkbox and paper ID #)
+                $table_stream->get_tag("td");
+                    # ----------
+                    $table_stream->get_tag("table");
                     $table_stream->get_tag("td");
-                        # ----------
-                        $table_stream->get_tag("table");
-                        $table_stream->get_tag("td");
-                        my $paper_id = $table_stream->get_trimmed_text("/td");
-                        $table_stream->get_tag("/table");
-                        push( @paper_ids, sprintf("%03d",$paper_id) );
-                        # ----------
-
-                    # the second column contains the paper name/authors/link/etc
-                    $table_stream->get_tag("td");
-            
-                        # ----------
-                        # grab link (abstract/paper link)
-                        my $a_tag = $table_stream->get_tag("a");
-            
-                        # save paper name
-                        my $paper_name = $table_stream->get_text("/a");
-                        push( @paper_names, $paper_name );
-            
-                        # save paper authors
-                        $table_stream->get_tag("br");
-                        $table_stream->get_tag("br");
-                        my $paper_author = $table_stream->get_text("br");
-                        push( @paper_authors, $paper_author );
-                        # ----------
-            
-                        # ------------
-                        # grab link (preview link)
-                        $table_stream->get_tag("a");
-                        # ----------
-            
-                        # ------------
-                        # grab link to PDF and store/save
-                        $a_tag = $table_stream->get_tag("a");
-                        push( @paper_links, $a_tag->[1]{href} );
-                        # ----------
-            
-                    # go to the last /table tag
+                    my $paper_id = $table_stream->get_trimmed_text("/td");
                     $table_stream->get_tag("/table");
-            
-                }#end if resultrow table
-            }#end table loop
-            
-            # Check that size of paper arrays are the same
-            my $paper_links_size        = scalar @paper_links;
-            my $paper_names_size        = scalar @paper_names;
-            my $paper_authors_size      = scalar @paper_authors;
-            my $paper_ids_size          = scalar @paper_ids;
+                    push( @paper_ids, sprintf("%03d",$paper_id) );
+                    # ----------
 
-            if( $paper_links_size != $paper_names_size ||
-                $paper_links_size != $paper_authors_size ||
-                $paper_links_size != $paper_ids_size )
-            {
-                die "Error: list size of paper links do not match list sizes of names, authors, or IDs.\n";
-            }
+                # the second column contains the paper name/authors/link/etc
+                $table_stream->get_tag("td");
+        
+                    # ----------
+                    # grab link (abstract/paper link)
+                    my $a_tag = $table_stream->get_tag("a");
+        
+                    # save paper name
+                    my $paper_name = $table_stream->get_text("/a");
+                    push( @paper_names, $paper_name );
+        
+                    # save paper authors
+                    $table_stream->get_tag("br");
+                    $table_stream->get_tag("br");
+                    my $paper_author = $table_stream->get_text("br");
+                    push( @paper_authors, $paper_author );
+                    # ----------
+        
+                    # ------------
+                    # grab link (preview link)
+                    $table_stream->get_tag("a");
+                    # ----------
+        
+                    # ------------
+                    # grab link to PDF and store/save
+                    $a_tag = $table_stream->get_tag("a");
+                    push( @paper_links, $a_tag->[1]{href} );
+                    # ----------
+        
+                # go to the last /table tag
+                $table_stream->get_tag("/table");
+        
+            }#end if resultrow table
+        }#end table loop
+        
+        # Check that size of paper arrays are the same
+        my $paper_links_size        = scalar @paper_links;
+        my $paper_names_size        = scalar @paper_names;
+        my $paper_authors_size      = scalar @paper_authors;
+        my $paper_ids_size          = scalar @paper_ids;
 
-            open_links( $mech_, $paper_links_size, @paper_links, @paper_names, @paper_ids );
+        if( $paper_links_size != $paper_names_size ||
+            $paper_links_size != $paper_authors_size ||
+            $paper_links_size != $paper_ids_size )
+        {
+            die "Error: list size of paper links do not match list sizes of names, authors, or IDs.\n";
+        }
 
-        } while ( click_next_page_button($mech_) );
+        open_links( $mech_, $paper_links_size, @paper_links, @paper_names, @paper_ids );
 
-        print "Done downloading papers from " . $pretty_name . "\n";
+    } while ( click_next_page_button($mech_) );
 
-        # Append that this volume/issue was saved
-        print "Putting \"" . $pretty_name . "\" in the archive.\n";
-        #my $file_ = $fullpath . '/archive.txt';
-        my $file_ = 'archive.txt';
-        open(ARCHIVE, '>>', $file_) or die "Error opening file " . $file_ . " for writing.\n";
-        print ARCHIVE $pretty_name . "\n"; 
-        close ARCHIVE;
+    print "Done downloading papers from " . $pretty_name . "\n";
 
-        print "------------------------------------\n\n";
+    # Append that this volume/issue was saved
+    print "Putting \"" . $pretty_name . "\" in the archive.\n";
+    #my $file_ = $fullpath . '/archive.txt';
+    my $file_ = 'archive.txt';
+    open(ARCHIVE, '>>', $file_) or die "Error opening file " . $file_ . " for writing.\n";
+    print ARCHIVE $pretty_name . "\n"; 
+    close ARCHIVE;
 
-    }
+    print "------------------------------------\n\n";
 }
 
 
@@ -398,6 +419,7 @@ sub downloadSpecifiedVolume {
     my $got_journal_name  = $vol_info[0];
     my $got_journal_vol   = $vol_info[1];
     my $got_journal_issue = $vol_info[2];
+    my $got_title_type    = $vol_info[4];
     if( $got_journal_vol != $journal_vol_ ) {
         print "WARNING: Journal " . $got_journal_name . " does not seem to have a volume " . $journal_vol_ . ". Downloading volume " . $got_journal_vol . " instead.\n";
     }
@@ -409,30 +431,36 @@ sub downloadSpecifiedVolume {
         $is_this_latest_volume = 1;
     }
 
-    for( my $i = $got_journal_issue; $i > 0; $i-- ) {
+    if( $got_title_type =~ /.*iss.*/ ) {
 
-        ISSUESLOOP: {
-            # check if this issue number exists:
-            # if an issue number is non-existent/invalid, 
-            # sciencedirect will redirect you to the latest volume.
-            # if it is a multi-issue listing (e.g. issues 1-2),
-            # only the first issue in the series (e.g. issue 1) is valid.
-            # if we get an invalid issue number, keep going.
-            $mech_->get($journal_url_ . "/" . $got_journal_vol . "/" . $i);
-            $mech_->get($journal_url_ . "/" . $got_journal_vol . "/" . $i);
-            my @vol_info = get_journal_info( $mech_ );
-            my $this_journal_vol = $vol_info[1];
+        for( my $i = $got_journal_issue; $i > 0; $i-- ) {
 
-            if( $is_this_latest_volume == 0 && $this_journal_vol == $latest_journal_vol ) {
-                # this is a non-existent/invalid issue number
-                print "Oops! Non-existent or invalid issue number: Volume " . $got_journal_vol . " Issue " . $i . " (ScienceDirect returned Volume " . $this_journal_vol . "). Continuing...\n";
-                last ISSUESLOOP;
+            ISSUESLOOP: {
+                # check if this issue number exists:
+                # if an issue number is non-existent/invalid, 
+                # sciencedirect will redirect you to the latest volume.
+                # if it is a multi-issue listing (e.g. issues 1-2),
+                # only the first issue in the series (e.g. issue 1) is valid.
+                # if we get an invalid issue number, keep going.
+                $mech_->get($journal_url_ . "/" . $got_journal_vol . "/" . $i);
+                $mech_->get($journal_url_ . "/" . $got_journal_vol . "/" . $i);
+                my @vol_info = get_journal_info( $mech_ );
+                my $this_journal_vol = $vol_info[1];
+        
+                if( $is_this_latest_volume == 0 && $this_journal_vol == $latest_journal_vol ) {
+                    # this is a non-existent/invalid issue number
+                    print "Oops! Non-existent or invalid issue number: Volume " . $got_journal_vol . " Issue " . $i . " (ScienceDirect returned Volume " . $this_journal_vol . "). Continuing...\n";
+                    last ISSUESLOOP;
+                }
+
+                downloadSpecifiedVolumeIssue( $mech_, $journal_url_, $got_journal_vol, $i );
             }
 
-            downloadSpecifiedVolumeIssue( $mech_, $journal_url_, $got_journal_vol, $i ) 
         }
-
-    }
+    } else {
+        # esle issue numbers are not needed, so pass a 0
+        downloadSpecifiedVolumeIssue( $mech_, $journal_url_, $got_journal_vol, 0 );
+    } 
 
 }
 
