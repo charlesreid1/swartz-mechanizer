@@ -33,7 +33,7 @@ This method may give you errors, if your Perl system is old and components are i
 perl -MCPAN -e 'install Bundle::CPAN'
 ```
 
-(THis may take a while.) Then, install cpanm:
+(This may take a while.) Then, install cpanm:
 
 ```bash
 perl -MCPAN -e 'install App::cpanimus'
@@ -85,7 +85,7 @@ If a weird case (like a multi-issue bundle, or an in-progress issue) is encounte
 
 In the case that something goes wrong, you will probably have to edit the get_journal_info() function. (The get_journal_info() function needs to be able to understand and parse the TITLE tags on the page to function properly. This could/should be changed to look more intelligently in other places.)
 
-If you need more fine-tuned control over the range of volumes or issues to download, I suggest combining this script with xargs. 
+If you need more fine-tuned control over the range of volumes or issues to download, I suggest combining this script with bash for loops. 
 
 This is meant to be a barely-sufficient script, and thus will not have a bunch of bells and whistles.
 
