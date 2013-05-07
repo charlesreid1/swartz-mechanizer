@@ -137,7 +137,7 @@ sub get_journal_info {
     my $journal_yr_;
     my $title_type;
 
-    if( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}), Pgs .* \(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
+    if( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}), Pgs .*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
         # if journal is volume & issue (normal)
         $journal_name_  = $1;
         $journal_vol_   = $2;
@@ -173,6 +173,19 @@ sub get_journal_info {
         $journal_issue_ = 1;
 
         $title_type = "vol";
+
+    } elsif( $title =~ /(.*) \| Vols ([0-9]{1,}).*([0-9]{1,}), Pgs .*\(.*([0-9]{4})\) \| ScienceDirect\.com/  ) {
+        # if jurnal is volumes only (multiple volumes per single page)
+        $journal_name_  = $1;
+        $journal_vol_   = $2;
+        $journal_yr_    = $4;
+
+        # no issue number, so just set it = to 1 
+        # (specifying any issue number will make it default to the latest volume/issue,
+        #  and only the latest volume/issue will be listed as "in progress" anyway) 
+        $journal_issue_ = 1;
+
+        $title_type = "vols";
 
     } elsif( $title =~ /(.*) \| Vol ([0-9]{1,}), Iss ([0-9]{1,}),  In Progress.*\(.*([0-9]{4})\) \| ScienceDirect\.com/ ) {
         # if journal is in progress, and volume & issue
@@ -210,7 +223,8 @@ sub get_journal_info {
 
     } else {
         print "Error from page " . $get_journal_info_mech_->uri() . "\n";
-        print "Malformed title. Check if the title is in one of the following forms: \n\n";
+        print "Malformed title: title was \"" . $title . "\" \n";
+        print "Make sure the title is in one of the following forms: \n\n";
         print "    <title>[Journal Name] | Vol [#], Iss [#], Pgs [#], ([Year]) | ScienceDirect.com</title>          \n";
         print "    <title>[Journal Name] | Vol [#], Isss [#-#], Pgs [#], ([Year]) | ScienceDirect.com</title>       \n";
         print "    <title>[Journal Name] | Vol [#], Pgs [#], ([Year]) | ScienceDirect.com</title>                   \n";

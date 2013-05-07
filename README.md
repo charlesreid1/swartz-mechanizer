@@ -12,7 +12,7 @@ In Memoriam [Aaron Swartz](http://en.wikipedia.org/wiki/Aaron_Swartz).
 
 This is all work in progress. It is also all terribly-written Perl. I know my Perl is atrociously hacked, but hey, it works.
 
-Currently, functionality is only for ScienceDirect journals. Next addition will be JSTOR.
+Currently, functionality is only for ScienceDirect journals.
 
 ### Prerequisites ###
 
